@@ -1,0 +1,38 @@
+# ALbuild Marketplace (AppSource) release template
+#
+# Submits the app to Microsoft Marketplace via Partner Center ingestion and (optionally) promotes
+# it to live after validation. Requires a Partner Center service principal (secret variables
+# PartnerCenterTenantId / PartnerCenterClientId / PartnerCenterClientSecret).
+
+parameters:
+  - name: pool
+    type: string
+    default: 'windows-latest'
+  - name: productName
+    type: string
+  - name: appFile
+    type: string
+  - name: autoPromote
+    type: boolean
+    default: false
+
+stages:
+  - stage: Marketplace
+    jobs:
+      - deployment: Submit
+        environment: 'AppSource'
+        pool:
+          vmImage: ${{ parameters.pool }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: SubmitMarketplace@0
+                  displayName: 'Submit to Marketplace'
+                  inputs:
+                    productName: '${{ parameters.productName }}'
+                    appFile: '${{ parameters.appFile }}'
+                    tenantId: '$(PartnerCenterTenantId)'
+                    clientId: '$(PartnerCenterClientId)'
+                    clientSecret: '$(PartnerCenterClientSecret)'
+                    autoPromote: ${{ parameters.autoPromote }}

@@ -1,0 +1,216 @@
+# ALbuild CI pipeline template (with container)
+#
+# Full build pipeline for a Business Central AL app: resolve artifact -> stamp version ->
+# create container -> install test toolkit -> resolve dependencies -> check translations ->
+# compile -> sign -> publish/install -> test -> publish results -> remove container.
+# Adopt it from a consuming repository by setting the parameters below.
+#
+# The BC target (country/type/version) and the test runner can also be controlled from an
+# `albuild.json` at the repo root (and per app folder); leave the parameters here empty to let
+# that file decide. See docs/project-config.md.
+#
+# Usage (azure-pipelines.yml):
+#   resources:
+#     repositories:
+#       - repository: albuild
+#         type: git
+#         name: 'Your Project/365businessdev.ALBuild'
+#   extends:
+#     template: templates/yaml/ci-pipeline.yml@albuild
+#     parameters:
+#       country: 'w1'
+#       bcVersion: ''
+#       projectFolder: 'app'
+
+parameters:
+  - name: pool
+    type: string
+    default: 'Self Hosted'
+  - name: type
+    type: string
+    default: 'Sandbox'
+  - name: country
+    type: string
+    default: 'w1'
+  - name: bcVersion
+    type: string
+    default: ''
+  - name: select
+    type: string
+    default: 'Latest'
+  # Empty = build every AL project in the repo (multi-root) in dependency order. Set to a single
+  # folder (e.g. 'app') to build just that project.
+  - name: projectFolder
+    type: string
+    default: ''
+  # Folder names to exclude from the multi-root build (comma-separated); merged with the repo-root
+  # albuild.json 'excludeProjects'.
+  - name: excludeProjects
+    type: string
+    default: ''
+  - name: containerName
+    type: string
+    default: 'albuild-$(Build.BuildId)'
+  - name: licenseFile
+    type: string
+    default: ''
+  - name: memoryLimit
+    type: string
+    default: '12G'     # blank = 8G (BC requires >= 3G; under hyperv isolation this sizes the VM)
+  # Versioning
+  - name: updateVersion
+    type: boolean
+    default: true
+  - name: versioningSchema
+    type: string
+    default: 'major.minor.increment.0'
+  - name: createBuildBranch
+    type: boolean
+    default: false
+  # Dependencies
+  - name: resolveDependencies
+    type: boolean
+    default: true
+  # Signing
+  - name: sign
+    type: boolean
+    default: false
+  # Toggles
+  - name: checkTranslations
+    type: boolean
+    default: true
+  - name: runTests
+    type: boolean
+    default: true
+  # Install only the test framework/libraries (true), not Microsoft's ~40 feature-test content apps.
+  - name: installTestLibrariesOnly
+    type: boolean
+    default: true
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        pool:
+          name: ${{ parameters.pool }}
+        steps:
+          - task: GetBcArtifact@0
+            displayName: 'Get BC Artifact'
+            inputs:
+              type: ${{ parameters.type }}
+              country: ${{ parameters.country }}
+              version: ${{ parameters.bcVersion }}
+              select: ${{ parameters.select }}
+              projectFolder: '${{ parameters.projectFolder }}'
+              outputVariable: 'bcArtifactUrl'
+
+          - ${{ if eq(parameters.updateVersion, true) }}:
+              - task: StampBuildVersion@0
+                displayName: 'Stamp Build Version'
+                inputs:
+                  schema: '${{ parameters.versioningSchema }}'
+                  buildId: '$(Build.BuildId)'
+                  ${{ if eq(parameters.createBuildBranch, false) }}:
+                    noBuildBranch: true
+
+          - task: CreateBcContainer@0
+            displayName: 'Create BC Container'
+            inputs:
+              artifactUrl: '$(bcArtifactUrl)'
+              containerName: '${{ parameters.containerName }}'
+              licenseFile: '${{ parameters.licenseFile }}'
+              memoryLimit: '${{ parameters.memoryLimit }}'
+
+          - ${{ if eq(parameters.runTests, true) }}:
+              - task: InstallTestToolkit@0
+                displayName: 'Install Test Toolkit'
+                inputs:
+                  containerName: '${{ parameters.containerName }}'
+                  includeTestLibrariesOnly: ${{ parameters.installTestLibrariesOnly }}
+
+          - ${{ if eq(parameters.resolveDependencies, true) }}:
+              - task: ResolveDependencies@0
+                displayName: 'Resolve Dependencies'
+                inputs:
+                  projectFolder: '${{ parameters.projectFolder }}'
+                  excludeProjects: '${{ parameters.excludeProjects }}'
+                  containerName: '${{ parameters.containerName }}'
+
+          - ${{ if eq(parameters.checkTranslations, true) }}:
+              - task: CheckTranslations@0
+                displayName: 'Check Translations'
+                inputs:
+                  path: '${{ parameters.projectFolder }}'
+                  excludeProjects: '${{ parameters.excludeProjects }}'
+                  failOnIssue: true
+
+          # Compile on the agent with the AL tool (cross-platform), resolving symbols from each
+          # project's .alpackages (populated by Resolve Dependencies). The container is used for
+          # publish/install/test, not compilation, so the agent needs the AL Tool installed
+          # (dotnet tool 'Microsoft.Dynamics.BusinessCentral.Development.Tools', or the VS Code AL extension).
+          - task: CompileApp@0
+            displayName: 'Compile AL App'
+            inputs:
+              projectFolder: '${{ parameters.projectFolder }}'
+              excludeProjects: '${{ parameters.excludeProjects }}'
+              outputFolder: '$(Build.ArtifactStagingDirectory)'
+              engine: 'AlTool'
+              artifactUrl: '$(bcArtifactUrl)'
+
+          - ${{ if eq(parameters.sign, true) }}:
+              - task: SignBcApp@0
+                displayName: 'Sign AL App'
+                inputs:
+                  path: '$(Build.ArtifactStagingDirectory)'
+                  keyVaultUrl: '$(SigningAzureKeyVaultUrl)'
+                  tenantId: '$(SigningAzureKeyVaultTenantId)'
+                  clientId: '$(SigningAzureKeyVaultClientId)'
+                  clientSecret: '$(SigningAzureKeyVaultClientSecret)'
+                  certificateName: '$(SigningCertName)'
+
+          # Install the resolved dependency apps into the container (in dependency order) before the
+          # built apps, so the app under test installs against its dependencies.
+          - ${{ if eq(parameters.resolveDependencies, true) }}:
+              - task: InstallDependencies@0
+                displayName: 'Install Dependencies'
+                inputs:
+                  containerName: '${{ parameters.containerName }}'
+                  projectFolder: '${{ parameters.projectFolder }}'
+                  excludeProjects: '${{ parameters.excludeProjects }}'
+
+          - task: PublishApp@0
+            displayName: 'Publish & Install App'
+            inputs:
+              containerName: '${{ parameters.containerName }}'
+              appFolder: '$(Build.ArtifactStagingDirectory)'
+              projectFolder: '${{ parameters.projectFolder }}'
+              excludeProjects: '${{ parameters.excludeProjects }}'
+
+          - ${{ if eq(parameters.runTests, true) }}:
+              - task: RunBcTests@0
+                displayName: 'Run AL Tests'
+                inputs:
+                  containerName: '${{ parameters.containerName }}'
+                  username: '$(containerUsername)'
+                  password: '$(containerPassword)'
+                  projectFolder: '${{ parameters.projectFolder }}'
+                  resultPath: '$(Build.SourcesDirectory)/TestResults.xml'
+                  failOnTestFailure: true
+
+              - task: PublishTestResults@2
+                displayName: 'Publish Test Results'
+                condition: succeededOrFailed()
+                inputs:
+                  testResultsFormat: 'JUnit'
+                  testResultsFiles: '$(Build.SourcesDirectory)/TestResults.xml'
+                  failTaskOnFailedTests: false
+
+          - task: RemoveBcContainer@0
+            displayName: 'Remove BC Container'
+            condition: always()
+            inputs:
+              containerName: '${{ parameters.containerName }}'
+
+          - publish: '$(Build.ArtifactStagingDirectory)'
+            artifact: 'app'
+            displayName: 'Publish .app artifact'

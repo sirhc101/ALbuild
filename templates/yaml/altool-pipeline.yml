@@ -1,0 +1,84 @@
+# ALbuild AL-tool pipeline template (no container)
+#
+# Compiles a Business Central AL app with Microsoft's cross-platform `al` tool only - no Docker
+# container and no test run. Use this for fast PR validation / compile checks on a hosted agent.
+# Symbols must be available in the project's `.alpackages` (commit them, restore them in a prior
+# step, or add a Resolve Dependencies step) because the AL tool does not restore from feeds itself.
+#
+# Usage (azure-pipelines.yml):
+#   resources:
+#     repositories:
+#       - repository: albuild
+#         type: git
+#         name: 'Your Project/365businessdev.ALBuild'
+#   extends:
+#     template: templates/yaml/altool-pipeline.yml@albuild
+#     parameters:
+#       projectFolder: 'app'
+
+parameters:
+  - name: pool
+    type: string
+    default: 'Self Hosted'
+  - name: projectFolder
+    type: string
+    default: 'app'
+  - name: outputFolder
+    type: string
+    default: '$(Build.ArtifactStagingDirectory)'
+  - name: updateVersion
+    type: boolean
+    default: false
+  - name: versioningSchema
+    type: string
+    default: 'major.minor.increment.0'
+  - name: resolveDependencies
+    type: boolean
+    default: false
+  - name: checkTranslations
+    type: boolean
+    default: true
+  - name: publishArtifact
+    type: boolean
+    default: true
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Compile
+        pool:
+          name: ${{ parameters.pool }}
+        steps:
+          - ${{ if eq(parameters.updateVersion, true) }}:
+              - task: StampBuildVersion@0
+                displayName: 'Stamp Build Version'
+                inputs:
+                  path: '${{ parameters.projectFolder }}'
+                  schema: '${{ parameters.versioningSchema }}'
+                  buildId: '$(Build.BuildId)'
+                  noBuildBranch: true
+
+          - ${{ if eq(parameters.resolveDependencies, true) }}:
+              - task: ResolveDependencies@0
+                displayName: 'Resolve Dependencies'
+                inputs:
+                  projectFolder: '${{ parameters.projectFolder }}'
+
+          - ${{ if eq(parameters.checkTranslations, true) }}:
+              - task: CheckTranslations@0
+                displayName: 'Check Translations'
+                inputs:
+                  path: '${{ parameters.projectFolder }}'
+                  failOnIssue: true
+
+          - task: CompileApp@0
+            displayName: 'Compile AL App (AL tool)'
+            inputs:
+              projectFolder: '${{ parameters.projectFolder }}'
+              outputFolder: '${{ parameters.outputFolder }}'
+              engine: 'AlTool'
+
+          - ${{ if eq(parameters.publishArtifact, true) }}:
+              - publish: '${{ parameters.outputFolder }}'
+                artifact: 'app'
+                displayName: 'Publish .app artifact'

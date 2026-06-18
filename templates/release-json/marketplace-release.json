@@ -1,0 +1,46 @@
+{
+  "_comment": "Importable Azure DevOps classic Release Definition template for ALbuild Marketplace (AppSource) release. Replace placeholders in <angle brackets> and import via Releases > New > Import. The single inline PowerShell step calls Submit-BcMarketplaceApp from the businessdev.ALbuild module.",
+  "source": "restApi",
+  "name": "ALbuild - Release to Marketplace",
+  "variables": {
+    "PartnerCenterTenantId": { "value": "", "allowOverride": true },
+    "PartnerCenterClientId": { "value": "", "allowOverride": true },
+    "PartnerCenterClientSecret": { "value": "", "isSecret": true, "allowOverride": true }
+  },
+  "environments": [
+    {
+      "name": "Approval for AppSource Release",
+      "rank": 1,
+      "preDeployApprovals": { "approvals": [ { "rank": 1, "isAutomated": false } ] },
+      "deployPhases": [ { "name": "Approval", "phaseType": "agentless", "workflowTasks": [] } ]
+    },
+    {
+      "name": "Marketplace",
+      "rank": 2,
+      "deployPhases": [
+        {
+          "name": "Submit to Marketplace",
+          "phaseType": "agentBasedDeployment",
+          "deploymentInput": { "agentSpecification": { "identifier": "windows-latest" } },
+          "workflowTasks": [
+            {
+              "taskId": "e213ff0f-5d5c-4791-802d-52ea3e7be1f1",
+              "version": "2.*",
+              "name": "Submit to Marketplace",
+              "inputs": {
+                "targetType": "inline",
+                "script": "Import-Module businessdev.ALbuild\n$secure = ConvertTo-SecureString $env:PC_CLIENT_SECRET -AsPlainText -Force\nSubmit-BcMarketplaceApp -ProductName '<PRODUCT NAME>' -AppFile '<PATH TO APP>' -TenantId $env:PC_TENANT_ID -ClientId $env:PC_CLIENT_ID -ClientSecret $secure -AutoPromote",
+                "pwsh": "true"
+              },
+              "environment": {
+                "PC_TENANT_ID": "$(PartnerCenterTenantId)",
+                "PC_CLIENT_ID": "$(PartnerCenterClientId)",
+                "PC_CLIENT_SECRET": "$(PartnerCenterClientSecret)"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

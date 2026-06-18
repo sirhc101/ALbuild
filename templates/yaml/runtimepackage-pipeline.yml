@@ -1,0 +1,50 @@
+# ALbuild runtime-package pipeline template
+#
+# Builds runtime packages for an app across Business Central platform versions using the batched/
+# incremental engine (one container per version, all apps; skips already-built combinations).
+# Long-running per-version jobs run on a self-hosted pool; running versions on separate agents
+# provides the parallel dimension.
+
+parameters:
+  - name: pool
+    type: string
+    default: 'Self Hosted'
+  - name: appFile
+    type: string
+    default: '$(bcAppFile)'
+  - name: type
+    type: string
+    default: 'OnPrem'
+  - name: country
+    type: string
+    default: 'w1'
+  - name: outputFolder
+    type: string
+    default: '$(Build.ArtifactStagingDirectory)'
+  - name: platformVersions
+    type: object
+    default: [ '24', '25', '26' ]
+
+stages:
+  - ${{ each version in parameters.platformVersions }}:
+      - stage: RuntimePackage_${{ replace(version, '.', '_') }}
+        displayName: 'Runtime package (BC ${{ version }})'
+        dependsOn: []
+        jobs:
+          - job: Build
+            timeoutInMinutes: 0
+            pool:
+              name: ${{ parameters.pool }}
+            steps:
+              - task: BuildRuntimePackages@0
+                displayName: 'Build runtime packages for BC ${{ version }}'
+                inputs:
+                  appFile: '${{ parameters.appFile }}'
+                  platformVersion: '${{ version }}'
+                  type: '${{ parameters.type }}'
+                  country: '${{ parameters.country }}'
+                  outputFolder: '${{ parameters.outputFolder }}'
+
+              - publish: '${{ parameters.outputFolder }}'
+                artifact: 'runtime-${{ version }}'
+                displayName: 'Publish runtime package (BC ${{ version }})'

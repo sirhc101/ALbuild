@@ -1,0 +1,80 @@
+# ALbuild release pipeline template
+#
+# Publishes the built app to a NuGet feed and (optionally) deploys it on-premises, as a per-tenant
+# extension, or to a development endpoint. Enable the steps you need with the parameters below.
+
+parameters:
+  - name: pool
+    type: string
+    default: 'Self Hosted'
+  # NuGet publish
+  - name: publishNuGet
+    type: boolean
+    default: true
+  - name: packagePath
+    type: string
+    default: ''
+  - name: feedUrl
+    type: string
+    default: ''
+  - name: apiKey
+    type: string
+    default: ''
+  # Per-tenant extension
+  - name: releasePerTenantExtension
+    type: boolean
+    default: false
+  - name: automationBaseUrl
+    type: string
+    default: ''
+  - name: companyId
+    type: string
+    default: ''
+  - name: appFile
+    type: string
+    default: '$(bcAppFile)'
+  # On-prem
+  - name: releaseOnPrem
+    type: boolean
+    default: false
+  - name: serverInstance
+    type: string
+    default: ''
+  # Optional Azure DevOps feed view to promote to after publishing (e.g. Prerelease / Release).
+  # Leave empty to publish only. Typically driven by the branch (dev -> Prerelease, master -> Release).
+  - name: view
+    type: string
+    default: ''
+
+stages:
+  - stage: Release
+    jobs:
+      - job: Publish
+        pool:
+          name: ${{ parameters.pool }}
+        steps:
+          - ${{ if eq(parameters.publishNuGet, true) }}:
+              - task: PublishPackage@0
+                displayName: 'Publish NuGet Package'
+                inputs:
+                  packagePath: '${{ parameters.packagePath }}'
+                  feedUrl: '${{ parameters.feedUrl }}'
+                  apiKey: '${{ parameters.apiKey }}'
+                  view: '${{ parameters.view }}'
+              # Release On-Prem / Release PTE tasks follow the same wrapper pattern.
+
+          - ${{ if eq(parameters.releasePerTenantExtension, true) }}:
+              - task: PublishPerTenantExtension@0
+                displayName: 'Publish Per-Tenant Extension'
+                inputs:
+                  automationBaseUrl: '${{ parameters.automationBaseUrl }}'
+                  companyId: '${{ parameters.companyId }}'
+                  appFile: '${{ parameters.appFile }}'
+                  accessToken: '$(BcAccessToken)'
+
+          - ${{ if eq(parameters.releaseOnPrem, true) }}:
+              - task: PublishOnPremApp@0
+                displayName: 'Publish On-Prem App'
+                inputs:
+                  serverInstance: '${{ parameters.serverInstance }}'
+                  appFile: '${{ parameters.appFile }}'
