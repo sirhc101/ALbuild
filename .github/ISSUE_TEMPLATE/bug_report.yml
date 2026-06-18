@@ -1,0 +1,75 @@
+name: 🐞 Bug report
+description: Report a problem with an ALbuild component.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please **search existing issues** first, then fill
+        in the details below. The component you choose is labelled automatically.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which ALbuild component is affected?
+      options:
+        - ALbuild.powershell (PowerShell module)
+        - ALbuild.vscode (VS Code extension)
+        - ALbuild.pipeline (Azure DevOps extension)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Component version
+      description: Module version, extension version, or pipeline task version.
+      placeholder: e.g. 2.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including the readable error message ALbuild printed.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, exact steps. Include a sample albuild.json / pipeline YAML if relevant.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, PowerShell edition/version, Docker, and BC artifact version/country.
+      placeholder: |
+        - OS: Windows 11
+        - PowerShell: 7.4
+        - Docker: Docker Desktop 4.x
+        - BC artifact: 27.1 / w1
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues (open and closed) and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go to security@365businessdev.com).
+          required: true

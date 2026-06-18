@@ -1,0 +1,64 @@
+name: Label component
+
+# Reads the "Component" dropdown from the issue form and applies the matching component label
+# (ALbuild.powershell / ALbuild.vscode / ALbuild.pipeline), creating the label if needed and
+# removing any previously-set component label so exactly one is applied.
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const components = {
+              'albuild.powershell': { name: 'ALbuild.powershell', color: '1f6feb' },
+              'albuild.vscode':     { name: 'ALbuild.vscode',     color: 'd18616' },
+              'albuild.pipeline':   { name: 'ALbuild.pipeline',   color: '2da44e' }
+            };
+
+            const body = context.payload.issue.body || '';
+            const match = body.match(/###\s*Component\s*\r?\n+\s*([^\r\n]+)/i);
+            if (!match) {
+              core.info('No Component section found; nothing to label.');
+              return;
+            }
+            const answer = match[1].toLowerCase();
+            const key = Object.keys(components).find(k => answer.includes(k));
+            if (!key) {
+              core.info(`Component answer "${match[1].trim()}" is not a known component; skipping.`);
+              return;
+            }
+            const target = components[key];
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.issue.number;
+
+            // Ensure the target label exists.
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: target.name });
+            } catch (e) {
+              if (e.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name: target.name, color: target.color });
+              } else {
+                throw e;
+              }
+            }
+
+            // Remove any other component label already on the issue.
+            const current = context.payload.issue.labels.map(l => l.name);
+            for (const c of Object.values(components)) {
+              if (c.name !== target.name && current.includes(c.name)) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: c.name }).catch(() => {});
+              }
+            }
+
+            // Apply the target component label.
+            await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [target.name] });
+            core.info(`Applied label ${target.name}.`);
